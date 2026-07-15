@@ -1,4 +1,4 @@
-openPOWERLINK {#mainpage}
+# openPOWERLINK {#mainpage}
 =============
 
 ## openPOWERLINK - An Open Source POWERLINK protocol stack

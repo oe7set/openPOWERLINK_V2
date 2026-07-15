@@ -135,10 +135,15 @@ tOplkError eventkcal_init(void)
     sem_unlink("/semUserEvent");
     sem_unlink("/semKernelEvent");
 
-    if ((instance_l.semUserData = sem_open("/semUserEvent", O_CREAT | O_RDWR, S_IRWXG, 0)) == SEM_FAILED)
+    /* Grant owner permissions in addition to group (S_IRWXU | S_IRWXG) so the
+     * creating (possibly unprivileged) process can always reopen/unlink these
+     * named semaphores. With group-only perms, a semaphore left behind by a
+     * previous run under a different user (e.g. root) could not be reused,
+     * failing eventkcal_init with kErrorNoResource. */
+    if ((instance_l.semUserData = sem_open("/semUserEvent", O_CREAT | O_RDWR, S_IRWXU | S_IRWXG, 0)) == SEM_FAILED)
         goto Exit;
 
-    if ((instance_l.semKernelData = sem_open("/semKernelEvent", O_CREAT | O_RDWR, S_IRWXG, 0)) == SEM_FAILED)
+    if ((instance_l.semKernelData = sem_open("/semKernelEvent", O_CREAT | O_RDWR, S_IRWXU | S_IRWXG, 0)) == SEM_FAILED)
         goto Exit;
 
     if (eventkcal_initQueueCircbuf(kEventQueueK2U) != kErrorOk)

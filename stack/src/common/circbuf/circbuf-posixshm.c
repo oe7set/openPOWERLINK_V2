@@ -143,7 +143,11 @@ tCircBufInstance* circbuf_createInstance(UINT8 id_p, BOOL fNew_p)
         sem_unlink(semName);
     }
 
-    if ((pArch->lockSem = sem_open(semName, O_CREAT, S_IRWXG, 1)) == SEM_FAILED)
+    /* Grant owner permissions in addition to group (S_IRWXU | S_IRWXG) so the
+     * creating (possibly unprivileged) process can always reopen/unlink this
+     * named semaphore. Group-only perms prevented reuse of a semaphore left
+     * behind by a previous run under a different user (e.g. root). */
+    if ((pArch->lockSem = sem_open(semName, O_CREAT, S_IRWXU | S_IRWXG, 1)) == SEM_FAILED)
     {
         DEBUG_LVL_ERROR_TRACE("%s() open sem failed!\n", __func__);
         OPLK_FREE(pInstance);
@@ -166,13 +170,22 @@ The function frees the allocated memory used by the circular buffer instance.
 //------------------------------------------------------------------------------
 void circbuf_freeInstance(tCircBufInstance* pInstance_p)
 {
-    tCircBufArchInstance* pArch;
+    tCircBufArchInstance*   pArch;
+    char                    semName[16];
 
     // Check parameter validity
     ASSERT(pInstance_p != NULL);
 
     pArch = (tCircBufArchInstance*)pInstance_p->pCircBufArchInstance;
     sem_close(pArch->lockSem);
+
+    /* Remove the named semaphore from the system. Without this unlink the
+     * "/semCircbuf-<id>" object lingers in /dev/shm after shutdown; a later run
+     * under a different user could then no longer reopen it, breaking init. The
+     * creator of the buffer (fNew_p) is responsible for the cleanup. */
+    sprintf(semName, "/semCircbuf-%d", pInstance_p->bufferId);
+    sem_unlink(semName);
+
     OPLK_FREE(pInstance_p);
 }
 
@@ -208,7 +221,11 @@ tCircBufError circbuf_allocBuffer(tCircBufInstance* pInstance_p, size_t* pSize_p
     pageSize = (sizeof(tCircBufHeader) + (size_t)sysconf(_SC_PAGE_SIZE) - 1) & (~((size_t)sysconf(_SC_PAGE_SIZE) - 1));
     size = *pSize_p + pageSize;
 
-    if ((pArch->fd = shm_open(shmName, O_RDWR | O_CREAT, 0)) < 0)
+    /* Create the shared-memory object owner- and group-readable/writable
+     * (S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP). Passing mode 0 relied on the umask and
+     * could leave an object the creating process itself could not reopen. */
+    if ((pArch->fd = shm_open(shmName, O_RDWR | O_CREAT,
+                              S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)) < 0)
     {
         DEBUG_LVL_ERROR_TRACE("%s() shm_open failed!\n", __func__);
         return kCircBufNoResource;

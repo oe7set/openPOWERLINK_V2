@@ -173,9 +173,15 @@ tOplkError hrestimer_init(void)
     schedParam.sched_priority = CONFIG_THREAD_PRIORITY_HIGH;
     if (pthread_setschedparam(hresTimerInstance_l.threadId, SCHED_FIFO, &schedParam) != 0)
     {
-        DEBUG_LVL_ERROR_TRACE("%s() Couldn't set thread scheduling parameters!\n", __func__);
-        pthread_cancel(hresTimerInstance_l.threadId);
-        return kErrorNoResource;
+        /* Real-time scheduling (SCHED_FIFO) is not available to this process
+         * (no CAP_SYS_NICE / RLIMIT_RTPRIO == 0, e.g. running unprivileged or
+         * under WSL). Continue with normal scheduling instead of aborting stack
+         * init -- this matches how the other openPOWERLINK Linux threads
+         * (edrv-rawsock, eventkcal-linux, eventucal-linux) already handle a
+         * failed pthread_setschedparam. NOTE: without RT priority the cycle
+         * timing has more jitter; not suitable for hard real-time production. */
+        DEBUG_LVL_ERROR_TRACE("%s() Couldn't set RT thread scheduling; "
+                              "continuing without real-time priority!\n", __func__);
     }
 
 #if (defined(__GLIBC__) && (__GLIBC__ >= 2) && (__GLIBC_MINOR__ >= 12))
